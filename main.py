@@ -17,15 +17,6 @@ ALLOWED_ORIGIN = "https://app-hqeluh.example.com"
 clients = defaultdict(list)
 
 
-def cors_headers(origin: str | None):
-    headers = {
-        "Access-Control-Expose-Headers": "X-Request-ID",
-    }
-    if origin == ALLOWED_ORIGIN:
-        headers["Access-Control-Allow-Origin"] = origin
-    return headers
-
-
 @app.middleware("http")
 async def middleware(request: Request, call_next):
 
@@ -34,11 +25,13 @@ async def middleware(request: Request, call_next):
     # ---------- Preflight ----------
     if request.method == "OPTIONS":
         resp = Response(status_code=200)
+
         if origin == ALLOWED_ORIGIN:
-            resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-            resp.headers["Access-Control-Allow-Headers"] = "*"
+            resp.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
+            resp.headers["Access-Control-Allow-Methods"] = "GET,OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "X-Request-ID, X-Client-Id"
             resp.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
+
         return resp
 
     # ---------- Request ID ----------
@@ -56,11 +49,13 @@ async def middleware(request: Request, call_next):
             status_code=429,
             content={"detail": "Rate limit exceeded"},
         )
+
         resp.headers["Retry-After"] = str(WINDOW)
         resp.headers["X-Request-ID"] = request_id
 
         if origin == ALLOWED_ORIGIN:
-            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
+            resp.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
 
         return resp
 
@@ -72,7 +67,7 @@ async def middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
 
     if origin == ALLOWED_ORIGIN:
-        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
 
     response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
 
