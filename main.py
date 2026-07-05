@@ -10,14 +10,10 @@ app = FastAPI()
 
 EMAIL = "24f2000456@ds.study.iitm.ac.in"
 
-# Allowed Origins
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://app-hqeluh.example.com",
-        "https://exam.sanand.workers.dev",
-        "https://dash-j0c4z9.example.com",
-    ],
+    allow_origins=["*"],   # exam ke liye easiest
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31,21 +27,47 @@ clients = defaultdict(list)
 
 
 @app.middleware("http")
-async def middleware(request: Request, call_next):
+async def request_context_and_rate_limit(request: Request, call_next):
 
+    # -------- Request ID --------
     request_id = request.headers.get("X-Request-ID")
     if not request_id:
         request_id = str(uuid.uuid4())
 
-    # Endpoint se pehle save
     request.state.request_id = request_id
+
+    # -------- Rate Limit --------
+    client_id = request.headers.get("X-Client-Id", "anonymous")
+
+    now = time.time()
+
+    clients[client_id] = [
+        t for t in clients[client_id]
+        if now - t < WINDOW
+    ]
+
+    if len(clients[client_id]) >= LIMIT:
+        response = JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded"},
+        )
+        response.headers["Retry-After"] = str(WINDOW)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+    clients[client_id].append(now)
 
     response = await call_next(request)
 
-    # SAME value response header me bhejo
-    response.headers["X-Request-ID"] = request.state.request_id
+    # Echo request id
+    response.headers["X-Request-ID"] = request_id
 
     return response
+
+
+@app.get("/")
+async def home():
+    return {"status": "ok"}
 
 
 @app.get("/ping")
