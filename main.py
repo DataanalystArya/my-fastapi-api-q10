@@ -21,6 +21,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 
 LIMIT = 12
@@ -32,35 +33,17 @@ clients = defaultdict(list)
 @app.middleware("http")
 async def middleware(request: Request, call_next):
 
-    # Request ID
     request_id = request.headers.get("X-Request-ID")
     if not request_id:
         request_id = str(uuid.uuid4())
 
-    # ⭐ IMPORTANT: endpoint se pehle state me save karo
+    # Endpoint se pehle save
     request.state.request_id = request_id
-
-    # Rate Limit
-    client = request.headers.get("X-Client-Id", "anonymous")
-
-    now = time.time()
-
-    clients[client] = [
-        t for t in clients[client]
-        if now - t < WINDOW
-    ]
-
-    if len(clients[client]) >= LIMIT:
-        return JSONResponse(
-            status_code=429,
-            content={"detail": "Rate limit exceeded"},
-        )
-
-    clients[client].append(now)
 
     response = await call_next(request)
 
-    response.headers["X-Request-ID"] = request_id
+    # SAME value response header me bhejo
+    response.headers["X-Request-ID"] = request.state.request_id
 
     return response
 
