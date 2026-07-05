@@ -3,22 +3,11 @@ import uuid
 from collections import defaultdict
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 app = FastAPI()
 
 EMAIL = "24f2000456@ds.study.iitm.ac.in"
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],   # exam ke liye easiest
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
-)
 
 LIMIT = 12
 WINDOW = 10
@@ -27,40 +16,52 @@ clients = defaultdict(list)
 
 
 @app.middleware("http")
-async def request_context_and_rate_limit(request: Request, call_next):
+async def middleware(request: Request, call_next):
 
-    # -------- Request ID --------
+    # ---------- Handle CORS Preflight ----------
+    if request.method == "OPTIONS":
+        return Response(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Expose-Headers": "X-Request-ID",
+            },
+        )
+
+    # ---------- Request ID ----------
     request_id = request.headers.get("X-Request-ID")
     if not request_id:
         request_id = str(uuid.uuid4())
 
     request.state.request_id = request_id
 
-    # -------- Rate Limit --------
-    client_id = request.headers.get("X-Client-Id", "anonymous")
-
+    # ---------- Rate Limiting ----------
+    client = request.headers.get("X-Client-Id", "anonymous")
     now = time.time()
 
-    clients[client_id] = [
-        t for t in clients[client_id]
-        if now - t < WINDOW
-    ]
+    clients[client] = [t for t in clients[client] if now - t < WINDOW]
 
-    if len(clients[client_id]) >= LIMIT:
+    if len(clients[client]) >= LIMIT:
         response = JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded"},
         )
         response.headers["Retry-After"] = str(WINDOW)
         response.headers["X-Request-ID"] = request_id
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
         return response
 
-    clients[client_id].append(now)
+    clients[client].append(now)
 
     response = await call_next(request)
 
-    # Echo request id
+    # ---------- Required Headers ----------
     response.headers["X-Request-ID"] = request_id
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
 
     return response
 
@@ -76,3 +77,16 @@ async def ping(request: Request):
         "email": EMAIL,
         "request_id": request.state.request_id,
     }
+
+
+@app.options("/ping")
+async def options_ping():
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Expose-Headers": "X-Request-ID",
+        },
+    )
