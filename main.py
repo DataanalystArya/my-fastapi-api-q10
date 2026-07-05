@@ -10,7 +10,7 @@ app = FastAPI()
 
 EMAIL = "24f2000456@ds.study.iitm.ac.in"
 
-# Allowed origins
+# Allowed Origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -23,7 +23,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rate limit: 12 requests / 10 seconds
 LIMIT = 12
 WINDOW = 10
 
@@ -33,10 +32,15 @@ clients = defaultdict(list)
 @app.middleware("http")
 async def middleware(request: Request, call_next):
 
-    # -------- Request ID --------
-    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    # Request ID
+    request_id = request.headers.get("X-Request-ID")
+    if not request_id:
+        request_id = str(uuid.uuid4())
 
-    # -------- Rate Limiting --------
+    # ⭐ IMPORTANT: endpoint se pehle state me save karo
+    request.state.request_id = request_id
+
+    # Rate Limit
     client = request.headers.get("X-Client-Id", "anonymous")
 
     now = time.time()
@@ -57,7 +61,6 @@ async def middleware(request: Request, call_next):
     response = await call_next(request)
 
     response.headers["X-Request-ID"] = request_id
-    request.state.request_id = request_id
 
     return response
 
